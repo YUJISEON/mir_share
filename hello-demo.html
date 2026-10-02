@@ -1,0 +1,667 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>HELLO 글자 그래픽 데모</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#1b2233}
+  /* 전체 배경 영역 — 장면이 바뀔 때 배경색이 0.6초 동안 부드럽게 바뀜 */
+  #hmHero{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:24px 16px;background:#fde3e8;transition:background-color .6s}
+  /* 캔버스를 감싸는 상자 — 정사각형 유지, 마우스 기울기 효과가 여기에 걸림 */
+  #hmArt{width:min(80vw,440px);aspect-ratio:1;transition:transform .2s ease-out}
+  #hmPipe{width:100%;height:100%;display:block}
+  /* 설명 문구 영역 */
+  .cap{text-align:center;min-height:64px}
+  #hmCapNo{font-size:13px;letter-spacing:.14em;opacity:.6}
+  #hmCapT{font-size:18px;font-weight:600;margin-top:4px;min-height:24px}
+  #hmSlogan{font-size:12px;letter-spacing:.2em;opacity:.55;margin-top:4px}
+  /* 글자 버튼 · 일시정지 버튼 */
+  .ctrl{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+  .ctrl button{width:42px;height:42px;border-radius:50%;border:1px solid rgba(0,0,0,.18);background:rgba(255,255,255,.6);font-size:16px;font-weight:700;cursor:pointer;color:inherit}
+  .ctrl button.on{background:#1b2233;color:#fff;border-color:#1b2233}          /* 현재 장면의 글자 */
+  .ctrl.all button[data-i]{background:#1b2233;color:#fff;border-color:#1b2233} /* 합체 장면: 전부 켜짐 */
+  #hmPause{font-size:13px}
+</style>
+</head>
+<body>
+<div id="hmHero">
+  <div id="hmArt"><canvas id="hmPipe"></canvas></div>
+  <div class="cap">
+    <div id="hmCapNo"></div>   <!-- 장면 번호 (01 / 05) -->
+    <div id="hmCapT"></div>    <!-- 설명 문구 (타이핑 효과) -->
+    <div id="hmSlogan"></div>  <!-- 하단 슬로건 -->
+  </div>
+  <!-- 글자 버튼은 스크립트가 SL 배열을 보고 자동으로 만들어 넣음 -->
+  <div class="ctrl hm-letters" id="hmLetters">
+    <button id="hmPause" aria-label="자동 넘김 멈추기" aria-pressed="false">❚❚</button>
+  </div>
+</div>
+<!-- 실시간 조절 패널용 라이브러리 (dat.GUI). 실제 사이트에 넣을 때는 이 줄과 스크립트 안의 GUI 블록을 지우면 됨 -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.9/dat.gui.min.js"></script>
+<script>
+/* =====================================================================
+   글자 그래픽 — 글자가 붓으로 그리듯 한 자씩 그려지고, 마지막에 단어로 합쳐짐
+   · 이미지/영상 없이 Canvas 2D 로 매 프레임 직접 그림
+   · 모든 좌표는 520×520 기준이며, 실제 화면 크기에 맞춰 자동으로 늘어남
+
+   [다른 단어로 바꿀 때 고칠 곳]
+     ① SEG  : 글자 모양(획 경로)
+     ② BOX  : 글자별 외곽 범위
+     ③ WORD : 합체 장면에 표시할 단어
+     ④ SL   : 장면별 색상 · 문구 · 질감
+   ===================================================================== */
+(function () {
+  /* ---------- 기본 준비 ---------- */
+  var $ = function (q) { return document.querySelector(q); };   // 요소 찾기 줄임말
+
+  /* RM: 사용자가 OS 에서 «동작 줄이기»를 켰는지. 켜져 있으면 애니메이션 없이 완성된 글자만 보여줌 */
+  var RM = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  var cv = $('#hmPipe'), art = $('#hmArt'), hero = $('#hmHero');
+
+  /* 캔버스 3장을 겹쳐 씀
+     ctx : 화면에 보이는 본 캔버스
+     pc  : P — 글자 본체(그라디언트 + 질감)를 그리는 보조 캔버스 (화면에 안 보임)
+     sc  : S — 글자 뒤 가는 윤곽선을 미리 그려두는 보조 캔버스 (화면에 안 보임) */
+  var ctx = cv.getContext('2d'),
+      P = document.createElement('canvas'), pc = P.getContext('2d'),
+      S = document.createElement('canvas'), sc = S.getContext('2d');
+
+  var BW = 520, BH = 520;   // 기준 좌표계 크기 (모든 글자 좌표가 이 안에서 정해짐)
+  var s = 1;                // 기준 좌표 → 실제 화면 배율 (화면 폭 / 520)
+  var dpr = 1;              // 기기 픽셀 비율 (레티나 화면 선명도용, 최대 2)
+  var mx = 0, my = 0;       // 현재 마우스 위치 (-1~1, 부드럽게 따라가는 값)
+  var tmx = 0, tmy = 0;     // 목표 마우스 위치 (-1~1, 실제 마우스 값)
+  var PI = Math.PI;
+
+  /* ---------- GUI 로 실시간 조절하는 값 모음 (CFG) ----------
+     원래 코드 곳곳에 숫자로 박혀 있던 값을 한곳에 모은 것. 오른쪽 위 패널에서 바꿀 수 있음 */
+  var CFG = {
+    hatchX: -30, hatchY: 18,   // 빗금 그림자를 글자에서 어긋나게 두는 양
+    hatchStep: 8,              // 빗금 줄 사이 간격(px)
+    ringGap: 50,               // 윤곽선 지름 = 획 두께 + 이 값 (글자와 윤곽선 사이 거리의 2배)
+    ringThick: 1.5,            // 윤곽선 굵기
+    shadowBlur: 46,            // 글자 아래 그림자 번짐
+    shadowY: 28,               // 글자 아래 그림자를 내리는 양
+    asmK: .31,                 // 합체 장면 최대 축소 비율 (폭을 넘으면 자동으로 더 줄어듦)
+    asmGap: 14,                // 합체 장면 글자 간격
+    asmY: 260,                 // 합체 장면 세로 중심
+    typeMs: 22,                // 설명 문구 타이핑 간격(ms)
+    tiltX: 6, tiltY: 5         // 마우스 기울기 각도 (좌우, 상하)
+  };
+
+  /* =====================================================================
+     ① 글자 모양 (SEG)
+     붓이 지나가는 순서대로 적은 경로. 이 순서대로 «그려지듯» 나타남.
+
+     · 직선  ['L', 시작x, 시작y, 끝x, 끝y]
+     · 호    ['A', 중심x, 중심y, 반지름, 시작각, 끝각]   (각도는 라디안, 0 = 오른쪽, PI/2 = 아래)
+     · 구조  글자: [ 획1, 획2, ... ]  /  획: [ 조각1, 조각2, ... ]
+             한 획 안의 조각들은 붓을 떼지 않고 이어 그리고,
+             획이 바뀌면 붓을 떼고 새 위치에서 다시 시작함
+     ===================================================================== */
+  var SEG = {
+    /* H : 왼쪽 세로 → 오른쪽 세로 → 가운데 가로 (3획) */
+    h: [[['L', 150, 110, 150, 420]], [['L', 370, 110, 370, 420]], [['L', 150, 265, 370, 265]]],
+    /* E : 위 가로 → 세로 → 아래 가로 (1획으로 이어 그림) + 가운데 가로 (2획) */
+    e: [[['L', 370, 110, 160, 110], ['L', 160, 110, 160, 420], ['L', 160, 420, 370, 420]], [['L', 160, 265, 330, 265]]],
+    /* L : 세로 → 아래 가로 (1획) */
+    l: [[['L', 180, 100, 180, 420], ['L', 180, 420, 380, 420]]],
+    /* O : 12시 방향(-PI/2)에서 시작해 시계 방향으로 한 바퀴 (1획) */
+    o: [[['A', 260, 265, 140, -PI / 2, 1.5 * PI]]]
+  };
+
+  /* =====================================================================
+     ② 글자별 외곽 범위 (BOX) — [좌, 상, 우, 하]
+     합체 장면에서 글자를 나란히 세울 때 폭과 중심을 계산하는 데 씀.
+     획의 중심선이 아니라 «획 두께 절반(W/2)까지 포함한» 바깥 경계로 적어야 함.
+     예) H 의 왼쪽 세로선 x=150, 두께 72 → 좌 = 150 - 36 = 114
+     ===================================================================== */
+  /* GUI 에서 획 두께(W)를 바꿔도 맞도록, 손으로 적는 대신 좌표와 W 로 자동 계산함 */
+  function boxOf(sl) {
+    var h = sl.W / 2, x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+    function add(x, y) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+    SEG[sl.shape].forEach(function (sub) { sub.forEach(function (g) {
+      if (g[0] === 'L') { add(g[1], g[2]); add(g[3], g[4]); }
+      else for (var q = 0; q <= 48; q++) { var a = g[4] + (g[5] - g[4]) * q / 48; add(g[1] + g[3] * Math.cos(a), g[2] + g[3] * Math.sin(a)); }
+    }); });
+    return [x0 - h, y0 - h, x1 + h, y1 + h];
+  }
+
+  /* ③ 합체 장면에 표시할 단어 */
+  var WORD = 'HELLO';
+
+  /* ---------- 글자별 전체 획 길이 미리 계산 ----------
+     «몇 % 그려졌는지»를 길이로 환산하려면 전체 길이가 필요함.
+     각 조각에 g.len 을 붙이고, 글자 전체 합계를 SEGLEN 에 저장 */
+  var SEGLEN = {};
+  Object.keys(SEG).forEach(function (k) {
+    var tot = 0;
+    SEG[k].forEach(function (sub) {
+      sub.forEach(function (g) {
+        g.len = g[0] === 'L'
+          ? Math.hypot(g[3] - g[1], g[4] - g[2])      // 직선 길이 = 두 점 사이 거리
+          : g[3] * Math.abs(g[5] - g[4]);             // 호 길이 = 반지름 × 각도 차
+        tot += g.len;
+      });
+    });
+    SEGLEN[k] = tot;
+  });
+
+  /* ---------- 경로 만들기 (trace) ----------
+     글자 key 의 경로를 «len 길이만큼만» 캔버스 c 에 만들고, 붓 끝 좌표 [x, y] 를 돌려줌.
+     len 을 생략하면 글자 전체를 만듦. 그리기 애니메이션의 핵심 함수.
+     (경로만 만들 뿐 실제로 칠하지는 않음 — 칠하기는 stroke() 가 담당) */
+  function trace(c, key, len) {
+    var rem = len == null ? 1e9 : len;   // rem: 아직 그릴 수 있는 남은 길이
+    var tip = null;                      // tip: 붓 끝 위치
+    if (rem <= 0) return null;
+    SEG[key].forEach(function (sub) {
+      if (rem <= 0) return;              // 남은 길이가 없으면 이후 획은 건너뜀
+      /* 획의 시작점 구하기 (직선이면 시작 좌표, 호면 시작각 위치) */
+      var f0 = sub[0],
+          sx = f0[0] === 'L' ? f0[1] : f0[1] + f0[3] * Math.cos(f0[4]),
+          sy = f0[0] === 'L' ? f0[2] : f0[2] + f0[3] * Math.sin(f0[4]);
+      c.moveTo(sx, sy); tip = [sx, sy];  // 붓을 떼고 시작점으로 이동
+      sub.forEach(function (g) {
+        if (rem <= 0) return;
+        var f = Math.min(1, rem / g.len);   // 이 조각을 얼마나 그릴지 (0~1)
+        if (g[0] === 'L') {
+          /* 직선: 시작점에서 f 비율만큼 진행한 지점까지 */
+          var x = g[1] + (g[3] - g[1]) * f, y = g[2] + (g[4] - g[2]) * f;
+          c.lineTo(x, y); tip = [x, y];
+        } else {
+          /* 호: 시작각에서 f 비율만큼 진행한 각도까지. 끝각 < 시작각이면 반시계 방향 */
+          var a = g[4] + (g[5] - g[4]) * f;
+          c.arc(g[1], g[2], g[3], g[4], a, g[5] < g[4]);
+          tip = [g[1] + g[3] * Math.cos(a), g[2] + g[3] * Math.sin(a)];
+        }
+        rem -= g.len;
+      });
+    });
+    return tip;
+  }
+
+  /* =====================================================================
+     ④ 장면 설정 (SL) — 글자마다 한 줄. 여기 값만 바꾸면 색상·문구가 바뀜
+
+     k      : 버튼에 표시되는 글자
+     shape  : 사용할 글자 모양 (SEG 의 키). 같은 모양을 여러 장면에서 재사용 가능
+     W      : 획 두께 (BOX 계산에 쓰이므로 바꾸면 BOX 도 같이 조정)
+     g      : 그라디언트 방향 [시작x, 시작y, 끝x, 끝y]
+     grad   : 글자 본체 그라디언트 3색 [시작, 중간(45%), 끝]
+     tex    : 글자 안쪽 질감 — 'network'(움직이는 점과 선) / 'photo'(어두운 얼룩) / 'glow'(도는 빛)
+     hatch  : 글자 뒤 빗금 그림자 색
+     ring   : 글자 뒤 가는 윤곽선 색
+     ro     : 윤곽선을 글자에서 얼마나 어긋나게 둘지 [x, y]
+     shadow : 글자 아래 드리우는 그림자 색
+     bg     : 이 장면의 배경색
+     txt    : 설명 문구 (타이핑되듯 나타남)
+     slo    : 하단 슬로건 (자동으로 대문자 처리)
+     ===================================================================== */
+  var SL = [
+    { k: 'H', shape: 'h', W: 72, g: [100, 80, 420, 460], grad: ['#ff5a83', '#ec154f', '#a3093a'], tex: 'network', hatch: 'rgba(236,21,79,.24)', ring: 'rgba(236,21,79,.32)', ro: [0, -24],
+      shadow: 'rgba(170,10,50,.35)', bg: '#fde3e8', txt: 'Hi there', slo: 'First letter' },
+    { k: 'E', shape: 'e', W: 72, g: [120, 80, 400, 460], grad: ['#6ff7d6', '#22e3b7', '#10b793'], tex: 'photo', hatch: 'rgba(12,30,60,.2)', ring: 'rgba(40,55,80,.35)', ro: [26, -22],
+      shadow: 'rgba(10,40,50,.3)', bg: '#e2f1ec', txt: 'Everyone is welcome', slo: 'Second letter' },
+    { k: 'L', shape: 'l', W: 72, g: [140, 80, 420, 460], grad: ['#ffc46b', '#f59a23', '#c76a05'], tex: 'glow', hatch: 'rgba(200,110,10,.24)', ring: 'rgba(255,255,255,.85)', ro: [22, -30],
+      shadow: 'rgba(150,80,10,.32)', bg: '#fdeed6', txt: 'Lines drawn by script', slo: 'Third letter' },
+    { k: 'L', shape: 'l', W: 72, g: [140, 80, 420, 460], grad: ['#f25584', '#e0265e', '#a90f3c'], tex: 'network', hatch: 'rgba(224,38,94,.24)', ring: 'rgba(255,255,255,.85)', ro: [-24, -26],
+      shadow: 'rgba(150,10,45,.32)', bg: '#fcd5da', txt: 'Letters can repeat', slo: 'Fourth letter' },
+    { k: 'O', shape: 'o', W: 72, g: [420, 80, 100, 460], grad: ['#a08cf6', '#3d8ef0', '#155fd0'], tex: 'glow', hatch: 'rgba(23,110,210,.26)', ring: 'rgba(255,255,255,.9)', ro: [-26, -22],
+      shadow: 'rgba(20,70,160,.32)', bg: '#d5eafc', txt: 'One full circle', slo: 'Fifth letter' }
+  ];
+
+  /* N: 글자 수. 장면 번호는 0 ~ N-1 이 각 글자, N 이 마지막 합체 장면 */
+  var N = SL.length;
+
+  /* ---------- 시간 설정 (단위: 밀리초) ---------- */
+  var DRAW = 1900;             // 글자 하나를 다 그리는 데 걸리는 시간
+  var DUR = 3100;              // 글자 장면 하나의 전체 길이 (그리기 + 머무는 시간)
+  var ADRAW = 380;             // 합체 장면에서 글자 하나를 그리는 시간
+  var ASM = N * 380 + 1600;    // 합체 장면 전체 길이 (글자 수만큼 그린 뒤 1.6초 머묾)
+
+  /* ---------- 재생 상태 ---------- */
+  var idx = 0;          // 현재 장면 번호
+  var tStart = 0;       // 현재 장면이 시작된 시각
+  var paused = RM;      // 자동 넘김 멈춤 여부 (동작 줄이기면 처음부터 멈춤)
+  var running = false;  // 프레임 루프가 돌고 있는지
+  var visible = true;   // 캔버스가 화면에 보이는지
+  var held = 0;         // 루프가 멈춘 순간의 장면 진행 시간 (다시 켤 때 이어가기용)
+  var lastIdx = -1;     // 직전 프레임의 장면 번호 (장면이 바뀌었는지 감지용)
+
+  /* ---------- network 질감용 점 60개 ----------
+     매번 같은 배치가 나오도록 고정 시드 난수를 씀 (새로고침해도 모양 동일)
+     x, y: 위치 / vx, vy: 프레임당 이동량 / r: 반지름 (12% 확률로 큰 점) */
+  var nodes = [], seed = 7;
+  function rnd() { seed = (seed * 16807) % 2147483647; return seed / 2147483647; }
+  for (var n = 0; n < 60; n++) nodes.push({
+    x: 50 + rnd() * 420, y: 60 + rnd() * 420,
+    vx: (rnd() - .5) * .35, vy: (rnd() - .5) * .35,
+    r: rnd() < .12 ? 5 + rnd() * 4 : 1.2 + rnd() * 1.8
+  });
+
+  /* ---------- 빗금 무늬 만들기 ----------
+     작은 캔버스(step × step)에 대각선 한 줄을 그려 반복 패턴으로 만듦.
+     color: 선 색 / step: 빗금 간격(픽셀, 기본 8) */
+  function hatchPattern(c, color, step) {
+    var pt = document.createElement('canvas'); pt.width = pt.height = step || CFG.hatchStep;
+    var x = pt.getContext('2d'); x.strokeStyle = color; x.lineWidth = 1;
+    x.beginPath(); x.moveTo(0, pt.height); x.lineTo(pt.width, 0); x.stroke();
+    return c.createPattern(pt, 'repeat');
+  }
+
+  /* ---------- 글자 획 칠하기 (stroke) ----------
+     c: 그릴 캔버스 / sl: 장면 설정 / w: 두께 / style: 색·그라디언트·패턴
+     ox, oy: 위치를 어긋나게 할 양 / len: 그릴 길이 (생략 시 전체)
+     끝이 둥근 굵은 선으로 글자를 그리고, 붓 끝 좌표를 돌려줌 */
+  function stroke(c, sl, w, style, ox, oy, len) {
+    c.save(); c.translate(ox || 0, oy || 0);
+    c.lineCap = 'round'; c.lineJoin = 'round';   // 선 끝과 꺾이는 곳을 둥글게
+    c.lineWidth = w; c.strokeStyle = style;
+    c.beginPath(); var tip = trace(c, sl.shape, len); if (tip) c.stroke();
+    c.restore();
+    return tip;
+  }
+
+  /* ---------- 캔버스 크기 맞추기 ----------
+     화면에 표시되는 크기를 재서 캔버스 3장의 실제 픽셀 수를 맞춤.
+     (CSS 크기 × dpr 로 잡아야 레티나 화면에서 흐릿하지 않음)
+     처음 한 번, 그리고 창 크기가 바뀔 때마다 실행됨 */
+  function size() {
+    var r = cv.getBoundingClientRect(); if (!r.width) return;
+    dpr = Math.min(window.devicePixelRatio || 1, 2);   // 성능을 위해 최대 2배까지만
+    s = r.width / BW;
+    [cv, P, S].forEach(function (c) { c.width = Math.round(r.width * dpr); c.height = Math.round(r.height * dpr); });
+    lastIdx = -1;               // 윤곽선을 새 크기로 다시 그리게 함
+    draw(performance.now());
+  }
+
+  /* ---------- 글자 뒤 가는 윤곽선 (drawStatic) ----------
+     움직이지 않는 요소라 장면이 바뀔 때 한 번만 S 캔버스에 그려둠.
+     방법: 두꺼운 선(W+50)을 그린 뒤, 조금 얇은 선(W+47)으로 속을 파내면
+           1.5px 두께의 테두리만 남음 (destination-out = 겹친 부분 지우기) */
+  function drawStatic(sl) {
+    sc.setTransform(1, 0, 0, 1, 0, 0); sc.clearRect(0, 0, S.width, S.height);
+    if (!sl) return;   // 합체 장면에는 윤곽선 없음
+    var T = document.createElement('canvas'); T.width = S.width; T.height = S.height;
+    var tc = T.getContext('2d'); tc.setTransform(s * dpr, 0, 0, s * dpr, 0, 0);
+    stroke(tc, sl, sl.W + CFG.ringGap, sl.ring, sl.ro[0], sl.ro[1]);
+    tc.globalCompositeOperation = 'destination-out';
+    stroke(tc, sl, sl.W + CFG.ringGap - CFG.ringThick * 2, '#000', sl.ro[0], sl.ro[1]);
+    sc.drawImage(T, 0, 0);
+    sl._hp = hatchPattern(ctx, sl.hatch);   // 빗금 그림자 패턴도 미리 만들어 둠
+  }
+
+  /* 가속·감속 곡선: 천천히 시작 → 빨라짐 → 천천히 끝 (p: 0~1) */
+  function ease(p) { return p < .5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2; }
+
+  /* ---------- 붓 끝의 흰 빛 ----------
+     그려지는 동안 붓 끝 위치에 가운데가 밝고 바깥으로 사라지는 원을 그림 */
+  function penTip(c, tip, w) {
+    if (!tip) return;
+    var g = c.createRadialGradient(tip[0], tip[1], 0, tip[0], tip[1], w * .55);
+    g.addColorStop(0, 'rgba(255,255,255,.9)'); g.addColorStop(.35, 'rgba(255,255,255,.35)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+    c.fillStyle = g; c.beginPath(); c.arc(tip[0], tip[1], w * .55, 0, 6.2832); c.fill();
+  }
+
+  /* =====================================================================
+     글자 안쪽 질감 (texture)
+     drawLetter 가 'source-atop' 상태에서 호출하므로, 여기서 화면 전체에 그려도
+     «이미 그려진 글자 위»에만 칠해짐 (글자 모양으로 오려낸 효과).
+     질감의 색은 SL 이 아니라 이 함수 안의 rgba(...) 값을 직접 고쳐야 바뀜.
+     t: 현재 시각(ms) — 질감을 시간에 따라 움직이는 데 씀
+     ===================================================================== */
+  function texture(sl, t) {
+    var c = pc, a, b, d, dx, dy;
+
+    /* 공통: 아주 옅은 흰색 대각선 줄무늬 */
+    c.strokeStyle = 'rgba(255,255,255,.07)'; c.lineWidth = 1; c.beginPath();
+    for (var x = -520; x < 520; x += 7) { c.moveTo(x, 520); c.lineTo(x + 520, 0); }
+    c.stroke();
+
+    if (sl.tex === 'network') {
+      /* --- network: 떠다니는 점들과, 가까운 점끼리 잇는 선 --- */
+      c.fillStyle = 'rgba(70,8,60,.35)'; c.fillRect(0, 0, BW, BH);   // 전체를 살짝 어둡게
+      var ox = mx * 14, oy = my * 14;   // 마우스 방향으로 살짝 밀림 (입체감)
+      c.lineWidth = .8;
+      for (a = 0; a < nodes.length; a++) for (b = a + 1; b < nodes.length; b++) {
+        dx = nodes[a].x - nodes[b].x; dy = nodes[a].y - nodes[b].y; d = Math.sqrt(dx * dx + dy * dy);
+        /* 거리 88 이내인 두 점만 연결. 가까울수록 선이 진함 */
+        if (d < 88) {
+          c.strokeStyle = 'rgba(255,210,225,' + (1 - d / 88) * .6 + ')';
+          c.beginPath(); c.moveTo(nodes[a].x + ox, nodes[a].y + oy); c.lineTo(nodes[b].x + ox, nodes[b].y + oy); c.stroke();
+        }
+      }
+      nodes.forEach(function (p) {
+        c.fillStyle = p.r > 4 ? 'rgba(255,150,190,.9)' : 'rgba(255,220,232,.85)';   // 큰 점 / 작은 점
+        c.beginPath(); c.arc(p.x + ox, p.y + oy, p.r, 0, 6.2832); c.fill();
+      });
+
+    } else if (sl.tex === 'photo') {
+      /* --- photo: 천천히 흔들리는 어둡고 밝은 얼룩 3개 + 안쪽 빗금 --- */
+      var tt = t / 2200;   // 숫자가 클수록 느리게 움직임
+      /* 각 항목: [중심x, 중심y, 반지름, 색] */
+      [[200 + Math.sin(tt) * 30, 180, 130, 'rgba(0,40,50,.6)'],
+       [300, 360 + Math.cos(tt) * 30, 120, 'rgba(0,30,40,.5)'],
+       [330 + Math.cos(tt) * 30, 150, 110, 'rgba(255,255,255,.4)']].forEach(function (b2) {
+        var g2 = c.createRadialGradient(b2[0], b2[1], 0, b2[0], b2[1], b2[2]);
+        g2.addColorStop(0, b2[3]); g2.addColorStop(1, 'rgba(0,0,0,0)');
+        c.fillStyle = g2; c.fillRect(0, 0, BW, BH);
+      });
+      /* 글자 모양을 따라 빗금 무늬를 살짝 어긋나게 한 번 더 */
+      stroke(c, sl, sl.W * .55, hatchPattern(c, 'rgba(255,255,255,.22)', 6), -16, -16);
+
+    } else if (sl.tex === 'glow') {
+      /* --- glow: 중심(260,265) 둘레를 마주 보며 도는 빛 2개 --- */
+      var ang = t / 1800;   // 숫자가 클수록 느리게 돎
+      [[260 + Math.cos(ang) * 130 + mx * 10, 265 + Math.sin(ang) * 150, 170, 'rgba(255,245,220,.7)'],
+       [260 - Math.cos(ang) * 130, 265 - Math.sin(ang) * 150, 150, 'rgba(255,255,255,.4)']].forEach(function (b3) {
+        var g3 = c.createRadialGradient(b3[0], b3[1], 0, b3[0], b3[1], b3[2]);
+        g3.addColorStop(0, b3[3]); g3.addColorStop(1, 'rgba(255,255,255,0)');
+        c.fillStyle = g3; c.fillRect(0, 0, BW, BH);
+      });
+    }
+
+    /* 공통: 둥근 관 느낌 — 왼쪽 위에 밝은 줄, 오른쪽 아래에 어두운 줄을 겹쳐 입체감을 줌 */
+    stroke(c, sl, sl.W * .3, 'rgba(255,255,255,.10)', -12, -10);
+    stroke(c, sl, sl.W * .45, 'rgba(0,0,30,.10)', 14, 12);
+  }
+
+  /* 장면 설정(sl.g, sl.grad)으로 글자 본체용 3색 그라디언트 만들기 */
+  function gradOf(sl) {
+    var g = pc.createLinearGradient(sl.g[0], sl.g[1], sl.g[2], sl.g[3]);
+    g.addColorStop(0, sl.grad[0]); g.addColorStop(.45, sl.grad[1]); g.addColorStop(1, sl.grad[2]);
+    return g;
+  }
+
+  /* ---------- 글자 한 자 그리기 (drawLetter) ----------
+     P 캔버스에 글자 본체를 그림.  prog: 그려진 정도(0~1) / t: 현재 시각
+     순서: 그라디언트 획 → 그 위에만 질감 → 붓 끝 빛 */
+  function drawLetter(sl, prog, t) {
+    pc.setTransform(1, 0, 0, 1, 0, 0); pc.clearRect(0, 0, P.width, P.height);   // 지우기
+    pc.setTransform(s * dpr, 0, 0, s * dpr, 0, 0);                              // 520 좌표계 → 실제 픽셀
+    var tip = stroke(pc, sl, sl.W, gradOf(sl), 0, 0, prog >= 1 ? null : SEGLEN[sl.shape] * prog);
+    if (!tip) return;
+    pc.globalCompositeOperation = 'source-atop';   // 이후로는 «이미 칠해진 곳»에만 그려짐
+    texture(sl, t);
+    pc.globalCompositeOperation = 'source-over';   // 일반 모드로 되돌림
+    if (prog < 1) penTip(pc, tip, sl.W);           // 그리는 중일 때만 붓 끝 빛
+  }
+
+  /* ---------- 마지막 장면: 모든 글자를 나란히 (drawAssembly) ----------
+     각 글자를 축소해 가로로 늘어놓고, 왼쪽부터 ADRAW 간격으로 차례로 그림.
+     질감 없이 그라디언트만 사용.  t: 장면 시작 후 지난 시간(ms) */
+  function drawAssembly(t) {
+    pc.setTransform(1, 0, 0, 1, 0, 0); pc.clearRect(0, 0, P.width, P.height);
+    var gap = CFG.asmGap, sum = 0;   // gap: 글자 사이 간격 / sum: 모든 글자의 원래 폭 합계
+    SL.forEach(function (sl) { var b = boxOf(sl); sum += b[2] - b[0]; });
+    /* k: 축소 비율. 좌우 여백 20씩 남기고 폭 520 안에 들어가도록 자동 계산 (최대 0.31) */
+    var k = Math.min(CFG.asmK, (BW - 40 - gap * (N - 1)) / sum);
+    var x = (BW - (sum * k + gap * (N - 1))) / 2;   // 전체를 가운데 정렬했을 때의 시작 x
+    SL.forEach(function (sl, i) {
+      var b = boxOf(sl), w = (b[2] - b[0]) * k;
+      /* p: 이 글자의 진행도. i 번째 글자는 i × ADRAW 만큼 늦게 시작 */
+      var p = Math.max(0, Math.min(1, (t - i * ADRAW) / ADRAW));
+      if (p > 0) {
+        pc.setTransform(s * dpr, 0, 0, s * dpr, 0, 0);
+        /* 글자의 BOX 중심을 (x + w/2, 260) 으로 옮기고 k 배로 축소 */
+        pc.translate(x + w / 2, CFG.asmY); pc.scale(k, k); pc.translate(-(b[0] + b[2]) / 2, -(b[1] + b[3]) / 2);
+        var tip = stroke(pc, sl, sl.W, gradOf(sl), 0, 0, p >= 1 ? null : SEGLEN[sl.shape] * ease(p));
+        if (p < 1) penTip(pc, tip, sl.W);
+      }
+      x += w + gap;   // 다음 글자 위치로
+    });
+    pc.setTransform(1, 0, 0, 1, 0, 0);
+  }
+
+  /* =====================================================================
+     화면 문구 · 버튼
+     ===================================================================== */
+
+  /* 글자 버튼을 SL 배열에서 자동 생성 — 글자 수가 바뀌어도 HTML 을 고칠 필요 없음 */
+  var lettersBox = $('#hmLetters'), pauseBtn = $('#hmPause'), btns = [];
+  SL.forEach(function (sl, i) {
+    var b = document.createElement('button');
+    b.textContent = sl.k; b.setAttribute('data-i', i); b.setAttribute('aria-label', (i + 1) + '번째 글자 ' + sl.k);
+    b.addEventListener('click', function () { goScene(i); });   // 누르면 그 글자 장면으로 이동
+    lettersBox.insertBefore(b, pauseBtn); btns.push(b);
+  });
+
+  var capNo = $('#hmCapNo'), capT = $('#hmCapT'), slogan = $('#hmSlogan'), typeTimer = null;
+
+  /* 설명 문구를 한 글자씩 타이핑하듯 표시 (22ms 간격). 동작 줄이기면 한 번에 표시 */
+  function typeCap(txt) {
+    clearTimeout(typeTimer);   // 이전 타이핑이 진행 중이면 중단
+    if (RM) { capT.textContent = txt; return; }
+    var k = 0; capT.textContent = '';
+    (function tick() { k++; capT.textContent = txt.slice(0, k); if (k < txt.length) typeTimer = setTimeout(tick, CFG.typeMs); })();
+  }
+
+  function pad(n) { return (n < 10 ? '0' : '') + n; }   // 3 → '03'
+
+  /* ---------- 장면 전환 시 화면 갱신 (applyScene) ----------
+     배경색·번호·문구·슬로건·버튼 상태를 바꾸고 윤곽선을 다시 그림.
+     장면이 바뀌는 순간 한 번만 호출됨.  i === N 이면 합체 장면 */
+  function applyScene(i) {
+    var asm = i === N, sl = SL[i] || SL[0];
+    hero.style.backgroundColor = asm ? SL[0].bg : sl.bg;                              // 배경색 (합체 장면은 첫 글자 색)
+    capNo.textContent = asm ? WORD.split('').join(' · ') : pad(i + 1) + ' / ' + pad(N);  // 'H · E · L · L · O' 또는 '01 / 05'
+    typeCap(asm ? WORD + ' — 스크립트로 그린 글자' : sl.txt);                          // 합체 장면 문구는 여기서 수정
+    slogan.textContent = asm ? WORD : sl.slo.toUpperCase();
+    btns.forEach(function (b, j) { b.classList.toggle('on', j === i); });             // 현재 글자 버튼만 강조
+    lettersBox.classList.toggle('all', asm);                                          // 합체 장면이면 전부 강조
+    drawStatic(asm ? null : sl);
+  }
+
+  /* =====================================================================
+     한 프레임 그리기 (draw) — 초당 약 60회 호출됨
+     ① 시간 확인 → 장면 넘김   ② 보조 캔버스에 글자 그리기   ③ 본 캔버스에 겹쳐 합치기
+     ===================================================================== */
+  function draw(now) {
+    var t = now - tStart;                    // 현재 장면에서 지난 시간
+    var dur = idx === N ? ASM : DUR;         // 현재 장면의 길이
+
+    /* 장면 시간이 다 되면 다음 장면으로 (마지막 다음은 처음으로 순환) */
+    if (!paused && t >= dur) { idx = (idx + 1) % (N + 1); tStart = now; t = 0; }
+    if (idx !== lastIdx) { applyScene(idx); lastIdx = idx; }
+
+    /* 마우스 값을 목표를 향해 매 프레임 6% 씩 이동 → 부드럽게 따라옴 */
+    mx += (tmx - mx) * .06; my += (tmy - my) * .06;
+
+    var alpha = 1;      // 전체 투명도 (장면 끝에서 서서히 사라짐)
+    var prog = 1;       // 글자가 그려진 정도 (0~1)
+    var ringA = 1;      // 윤곽선 투명도
+    var sl = SL[idx];
+
+    /* 장면이 끝나기 250ms 전부터 서서히 사라짐 */
+    if (!paused && t > dur - 250) alpha = Math.max(0, (dur - t) / 250);
+
+    if (idx === N) drawAssembly(RM ? 99999 : t);   // 합체 장면 (동작 줄이기면 완성 상태로)
+    else {
+      prog = RM ? 1 : ease(Math.min(1, t / DRAW));
+      /* 윤곽선은 글자가 60% 쯤 그려졌을 때부터 0.5초에 걸쳐 나타남 */
+      ringA = RM ? 1 : Math.max(0, Math.min(1, (t - DRAW * .6) / 500));
+      /* network 질감의 점 이동 — 가장자리에 닿으면 방향을 반대로 */
+      if (sl.tex === 'network' && !RM) nodes.forEach(function (p) {
+        p.x += p.vx; p.y += p.vy;
+        if (p.x < 40 || p.x > 480) p.vx *= -1;
+        if (p.y < 50 || p.y > 490) p.vy *= -1;
+      });
+      drawLetter(sl, prog, now);
+    }
+
+    /* ----- 본 캔버스에 아래부터 차례로 겹쳐 그림 ----- */
+    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, cv.width, cv.height);
+    if (idx !== N) {
+      /* (맨 아래) 가는 윤곽선 */
+      ctx.globalAlpha = alpha * ringA; ctx.drawImage(S, 0, 0);
+      /* (중간) 빗금 그림자 — 글자를 왼쪽 아래(-30, 18)로 어긋나게, 글자와 같은 속도로 그려짐 */
+      ctx.globalAlpha = alpha; ctx.setTransform(s * dpr, 0, 0, s * dpr, 0, 0);
+      stroke(ctx, sl, sl.W, sl._hp || hatchPattern(ctx, sl.hatch), CFG.hatchX, CFG.hatchY, prog >= 1 ? null : SEGLEN[sl.shape] * prog);
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+    }
+    /* (맨 위) 글자 본체 — 아래쪽으로 번지는 그림자와 함께 */
+    ctx.globalAlpha = alpha;
+    ctx.save();
+    ctx.shadowColor = idx === N ? SL[0].shadow : sl.shadow;
+    ctx.shadowBlur = CFG.shadowBlur * s * dpr;       // 그림자 번짐 정도
+    ctx.shadowOffsetY = CFG.shadowY * s * dpr;    // 그림자를 아래로 내리는 양
+    ctx.drawImage(P, 0, 0);
+    ctx.restore();
+    ctx.globalAlpha = 1;
+  }
+
+  /* =====================================================================
+     재생 제어
+     ===================================================================== */
+
+  /* 프레임 루프 — 브라우저가 화면을 새로 그릴 때마다 draw 를 다시 호출 */
+  function loop(now) { if (!running) return; draw(now); requestAnimationFrame(loop); }
+
+  /* 루프 시작 — 이미 도는 중이거나, 동작 줄이기거나, 화면에 안 보이면 시작하지 않음 */
+  function start() {
+    if (running || RM || !visible || document.hidden) return;
+    running = true;
+    tStart = performance.now() - held;   // 멈췄던 지점부터 이어서
+    requestAnimationFrame(loop);
+  }
+
+  /* 루프 정지 — 현재 진행 시간을 held 에 기억해 둠 */
+  function stop() { if (!running) return; running = false; held = performance.now() - tStart; }
+
+  /* 특정 장면으로 바로 이동 (글자 버튼을 눌렀을 때) */
+  function goScene(i) {
+    idx = i; tStart = performance.now(); held = 0; lastIdx = -1;
+    if (!running) draw(performance.now());   // 루프가 멈춰 있어도 한 번은 그려줌
+  }
+
+  /* 일시정지 버튼의 모양과 접근성 라벨을 현재 상태에 맞춤 */
+  function syncPause() {
+    pauseBtn.textContent = paused ? '▶' : '❚❚';
+    pauseBtn.setAttribute('aria-pressed', paused ? 'true' : 'false');
+    pauseBtn.setAttribute('aria-label', paused ? '자동 넘김 시작' : '자동 넘김 멈추기');
+  }
+  syncPause();
+
+  /* 일시정지 버튼 — «자동 넘김»만 멈춤. 질감의 움직임은 계속됨 */
+  pauseBtn.addEventListener('click', function () {
+    paused = !paused;
+    /* 다시 시작하면 글자를 처음부터 다시 그리지 않고, 다 그려진 시점부터 이어감 */
+    if (!paused && idx !== N) tStart = performance.now() - DRAW;
+    syncPause();
+    /* 동작 줄이기 상태에서 사용자가 직접 재생을 누르면 애니메이션을 켬 */
+    if (RM && !paused) { RM = false; start(); }
+  });
+
+  /* =====================================================================
+     GUI 패널 (dat.GUI) — 커스텀 가능한 값을 실시간으로 바꿔 보는 용도
+     실제 사이트에 넣을 때는 이 블록과 위쪽 dat.gui <script> 태그를 지우면 됨
+     ===================================================================== */
+  if (window.dat && dat.GUI) {
+    var gui = new dat.GUI({ width: 320 });
+
+    /* 값이 바뀐 뒤 화면을 다시 그림 (윤곽선·빗금 패턴·배경색은 장면 전환 때만 그려지므로 직접 갱신) */
+    function redraw() {
+      if (idx < N) { drawStatic(SL[idx]); hero.style.backgroundColor = SL[idx].bg; }
+      if (!running) draw(performance.now());
+    }
+    /* 자동 넘김을 멈춰서, 조절하는 동안 장면이 넘어가지 않게 함 */
+    function hold() { if (!paused) pauseBtn.click(); }
+
+    var G = {
+      size: 440, DRAW: DRAW, DUR: DUR, ADRAW: ADRAW,
+      /* 현재 설정을 코드에 붙여 넣을 수 있는 형태로 복사 */
+      exportAll: function () {
+        var rows = SL.map(function (sl) { var o = {}; for (var key in sl) if (key !== '_hp') o[key] = sl[key]; return '  ' + JSON.stringify(o); });
+        var txt = 'var SL = [\n' + rows.join(',\n') + '\n];\n\nvar CFG = ' + JSON.stringify(CFG, null, 2) + ';\n\nvar DRAW = ' + DRAW + ', DUR = ' + DUR + ', ADRAW = ' + ADRAW + ';\n/* 캔버스 크기: ' + G.size + 'px */';
+        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(function () { alert('현재 설정값을 복사했습니다.'); }, function () { window.prompt('아래 내용을 복사하세요', txt); });
+        else window.prompt('아래 내용을 복사하세요', txt);
+      }
+    };
+
+    var f0 = gui.addFolder('전체');
+    f0.add(G, 'size', 160, 600, 10).name('캔버스 크기(px)').onChange(function (v) { art.style.width = 'min(80vw,' + v + 'px)'; size(); });
+    f0.add(CFG, 'tiltX', 0, 20, 1).name('기울기 좌우(도)');
+    f0.add(CFG, 'tiltY', 0, 20, 1).name('기울기 상하(도)');
+    f0.open();
+
+    var f1 = gui.addFolder('속도 · 시간 (ms)');
+    f1.add(G, 'DRAW', 300, 5000, 50).name('글자 그리는 시간').onChange(function (v) { DRAW = v; });
+    f1.add(G, 'DUR', 800, 8000, 50).name('장면 전체 길이').onChange(function (v) { DUR = v; });
+    f1.add(G, 'ADRAW', 100, 1500, 10).name('합체: 글자당 시간').onChange(function (v) { ADRAW = v; ASM = N * v + 1600; });
+    f1.add(CFG, 'typeMs', 5, 120, 1).name('타이핑 간격');
+
+    var f2 = gui.addFolder('윤곽선 · 빗금 · 그림자');
+    f2.add(CFG, 'ringGap', 6, 140, 1).name('윤곽선 거리').onChange(redraw);
+    f2.add(CFG, 'ringThick', .5, 8, .5).name('윤곽선 굵기').onChange(redraw);
+    f2.add(CFG, 'hatchX', -90, 90, 1).name('빗금 이동 x').onChange(redraw);
+    f2.add(CFG, 'hatchY', -90, 90, 1).name('빗금 이동 y').onChange(redraw);
+    f2.add(CFG, 'hatchStep', 3, 24, 1).name('빗금 간격').onChange(redraw);
+    f2.add(CFG, 'shadowBlur', 0, 120, 1).name('그림자 번짐').onChange(redraw);
+    f2.add(CFG, 'shadowY', 0, 90, 1).name('그림자 내림').onChange(redraw);
+
+    var f3 = gui.addFolder('합체 장면 (' + WORD + ')');
+    function toAsm() { hold(); if (idx !== N) goScene(N); else redraw(); }
+    f3.add(CFG, 'asmK', .08, .6, .01).name('크기(축소 비율)').onChange(toAsm);
+    f3.add(CFG, 'asmGap', 0, 50, 1).name('글자 간격').onChange(toAsm);
+    f3.add(CFG, 'asmY', 100, 420, 1).name('세로 위치').onChange(toAsm);
+
+    /* 글자별 폴더 — SL 의 각 줄에 해당 */
+    SL.forEach(function (sl, i) {
+      var f = gui.addFolder('글자 ' + (i + 1) + ' : ' + sl.k);
+      /* 배열로 된 값(grad, ro)은 GUI 가 직접 못 다루므로 임시 객체를 거쳐 되써넣음 */
+      var p = { c1: sl.grad[0], c2: sl.grad[1], c3: sl.grad[2], roX: sl.ro[0], roY: sl.ro[1] };
+      function ch() { hold(); if (idx !== i) goScene(i); else redraw(); }
+      f.add(sl, 'W', 10, 150, 1).name('획 두께 W').onChange(ch);
+      f.add(sl, 'tex', ['network', 'photo', 'glow']).name('질감 tex').onChange(ch);
+      f.addColor(p, 'c1').name('본체 색 1 (grad)').onChange(function (v) { sl.grad[0] = v; ch(); });
+      f.addColor(p, 'c2').name('본체 색 2 (grad)').onChange(function (v) { sl.grad[1] = v; ch(); });
+      f.addColor(p, 'c3').name('본체 색 3 (grad)').onChange(function (v) { sl.grad[2] = v; ch(); });
+      f.addColor(sl, 'bg').name('배경색 bg').onChange(ch);
+      f.addColor(sl, 'ring').name('윤곽선 색 ring').onChange(ch);
+      f.addColor(sl, 'hatch').name('빗금 색 hatch').onChange(ch);
+      f.addColor(sl, 'shadow').name('그림자 색 shadow').onChange(ch);
+      f.add(p, 'roX', -90, 90, 1).name('윤곽선 이동 x (ro)').onChange(function (v) { sl.ro[0] = v; ch(); });
+      f.add(p, 'roY', -90, 90, 1).name('윤곽선 이동 y (ro)').onChange(function (v) { sl.ro[1] = v; ch(); });
+      f.add(sl, 'txt').name('설명 문구 txt').onChange(function (v) { if (idx === i) { clearTimeout(typeTimer); capT.textContent = v; } });
+      f.add(sl, 'slo').name('슬로건 slo').onChange(function (v) { if (idx === i) slogan.textContent = v.toUpperCase(); });
+      f.add(sl, 'k').name('버튼 글자 k').onChange(function (v) { btns[i].textContent = v; });
+    });
+
+    gui.add(G, 'exportAll').name('▶ 현재 설정값 복사');
+  }
+
+  /* ---------- 시작 ---------- */
+  tStart = performance.now(); size();
+
+  /* 창 크기가 바뀌면 캔버스 크기를 다시 맞춤 (120ms 동안 변화가 없을 때 한 번만) */
+  window.addEventListener('resize', function () { clearTimeout(size._t); size._t = setTimeout(size, 120); });
+
+  /* 캔버스가 화면 밖으로 스크롤되면 멈추고, 다시 보이면 재개 (배터리·성능 절약) */
+  if ('IntersectionObserver' in window) new IntersectionObserver(function (es) { visible = es[0].isIntersecting; visible ? start() : stop(); }).observe(cv);
+
+  /* 다른 탭으로 가면 멈추고, 돌아오면 재개 */
+  document.addEventListener('visibilitychange', function () { document.hidden ? stop() : start(); });
+
+  start();
+
+  /* ---------- 마우스를 따라 살짝 기울기 ----------
+     마우스가 있는 기기(hover 가능)에서만, 동작 줄이기가 꺼져 있을 때만 동작.
+     tmx, tmy: 영역 안에서의 마우스 위치를 -1(왼쪽/위) ~ 1(오른쪽/아래) 로 환산 */
+  if (!RM && window.matchMedia('(hover:hover)').matches) {
+    hero.addEventListener('mousemove', function (e) {
+      var r = hero.getBoundingClientRect();
+      tmx = (e.clientX - r.left) / r.width * 2 - 1; tmy = (e.clientY - r.top) / r.height * 2 - 1;
+      /* 좌우 최대 6도, 상하 최대 5도 기울임 */
+      art.style.transform = 'perspective(900px) rotateY(' + (tmx * CFG.tiltX) + 'deg) rotateX(' + (-tmy * CFG.tiltY) + 'deg)';
+    });
+    /* 마우스가 영역을 벗어나면 원래대로 */
+    hero.addEventListener('mouseleave', function () { tmx = tmy = 0; art.style.transform = ''; });
+  }
+})();
+</script>
+</body>
+</html>

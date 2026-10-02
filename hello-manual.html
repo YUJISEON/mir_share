@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>글자 그래픽 스크립트 사용 매뉴얼</title>
+<style>
+  :root{--bg:#f6f7f9;--panel:#fff;--ink:#1b2233;--sub:#667085;--grid:#e3e6ec;--grid2:#c5cbd6;--fat:rgba(236,21,79,.16);--line:#ec154f;--pt:#155fd0;--hl:#fff3c4}
+  @media (prefers-color-scheme:dark){:root{--bg:#12151c;--panel:#1b2029;--ink:#e8ebf1;--sub:#98a2b3;--grid:#2a303c;--grid2:#414a5a;--fat:rgba(255,90,131,.2);--line:#ff5a83;--pt:#7fb2ff;--hl:#4a3f12}}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;padding:20px 16px}
+  .wrap{max-width:1000px;margin:0 auto}
+  h1{font-size:20px;margin:0 0 4px}
+  p.lead{margin:0 0 14px;color:var(--sub);font-size:14px}
+  .tabs{display:flex;gap:8px;margin-bottom:12px}
+  .tabs button{width:44px;height:44px;border-radius:50%;border:1px solid var(--grid2);background:var(--panel);color:var(--ink);font-size:17px;font-weight:700;cursor:pointer}
+  .tabs button.on{background:var(--line);color:#fff;border-color:var(--line)}
+  .cols{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:16px}
+  @media (max-width:760px){.cols{grid-template-columns:1fr}}
+  .panel{background:var(--panel);border-radius:12px;padding:12px;border:1px solid var(--grid)}
+  svg{width:100%;height:auto;display:block;touch-action:none}
+  .ax{font-size:11px;fill:var(--sub)}
+  .lbl{font-size:12px;font-weight:600;fill:var(--pt);paint-order:stroke;stroke:var(--panel);stroke-width:4px}
+  .num{font-size:13px;font-weight:700;fill:#fff}
+  #pos{font-size:13px;color:var(--sub);margin-top:8px;min-height:18px;font-variant-numeric:tabular-nums}
+  .seg{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;padding:8px 10px;border-radius:8px;cursor:pointer;margin-bottom:6px;border:1px solid var(--grid)}
+  .seg.on{background:var(--hl);border-color:var(--line)}
+  .seg small{display:block;font-family:system-ui,sans-serif;color:var(--sub);margin-top:3px;font-size:12px}
+  .stroke-h{font-size:12px;color:var(--sub);margin:10px 0 6px;font-weight:600}
+  .legend{font-size:12px;color:var(--sub);margin-top:10px;line-height:1.7}
+  h2{font-size:17px;margin:28px 0 4px}
+  .stage{background:#fcd5da;border-radius:8px}
+  .checks{display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:10px;font-size:13px}
+  .checks label{cursor:pointer}
+  .layer{font-size:13px;line-height:1.6;padding:10px;border:1px solid var(--grid);border-radius:8px;margin-bottom:8px}
+  code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;background:var(--bg);padding:1px 5px;border-radius:4px}
+  .steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+  @media (max-width:760px){.steps{grid-template-columns:1fr}}
+  .cap2{font-size:13px;margin-top:8px;line-height:1.5}
+  .cust{margin-bottom:12px}
+  .cust h3{font-size:15px;margin:2px 0 8px}
+  .cust h3 span{font-weight:400;color:var(--sub);font-size:13px}
+  .tw{overflow-x:auto}
+  table{border-collapse:collapse;width:100%;font-size:13px;min-width:520px}
+  th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--grid);vertical-align:top;line-height:1.5}
+  th{color:var(--sub);font-weight:600;font-size:12px}
+  td:first-child{white-space:nowrap}
+  .chip{display:inline-block;width:34px;height:14px;border-radius:4px;border:1px solid var(--grid2);vertical-align:middle;margin-right:6px}
+  .note{font-size:12px;color:var(--sub);margin:8px 0 0;line-height:1.6}
+  .how{margin:0;padding-left:20px;font-size:14px;line-height:1.9}
+  .how a,.lead a{color:var(--pt)}
+  .sw{display:inline-block;width:22px;height:8px;border-radius:4px;vertical-align:middle;margin-right:6px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>글자 그래픽 스크립트 사용 매뉴얼</h1>
+  <p class="lead">글자를 붓으로 그리듯 보여주는 캔버스 스크립트(<code>hello-demo.html</code>)를 다른 단어 · 색 · 문구로 바꿔 쓰는 방법을 정리했습니다.</p>
+  <div class="panel cust">
+    <h3>새 단어로 바꾸는 순서</h3>
+    <ol class="how">
+      <li><b>글자 좌표 적기</b> — 520×520 모눈에서 글자마다 획 경로를 정해 <code>SEG</code> 에 적습니다. <a href="#s1">1장</a></li>
+      <li><b>외곽 범위 적기</b> — 글자별 바깥 경계를 <code>BOX</code> 에 적습니다 (좌표의 최소 · 최대값에서 획 두께 절반만큼 넓힘). <a href="#s4">4장</a></li>
+      <li><b>장면 추가</b> — <code>SL</code> 에 글자마다 한 줄씩, 색 · 문구 · 질감을 적습니다. <a href="#s4">4장</a></li>
+      <li><b>단어 표시 바꾸기</b> — <code>WORD</code> 와 합체 장면 문구를 바꿉니다. <a href="#s4">4장</a></li>
+      <li><b>확인</b> — 브라우저에서 열어 보고, 윤곽선 · 빗금의 어긋남이나 속도를 조정합니다. <a href="#s2">2장</a> · <a href="#s3">3장</a></li>
+    </ol>
+    <p class="note">버튼 개수와 장면 번호는 <code>SL</code> 의 줄 수에 맞춰 자동으로 만들어지므로 HTML 은 고칠 필요가 없습니다.</p>
+  </div>
+
+  <h2 id="s1">1. 글자 좌표 보기</h2>
+  <p class="lead">520×520 모눈 위에 각 글자의 좌표가 어디에 찍히는지 보여줍니다. 글자를 고르고, 오른쪽 코드 줄을 누르면 해당 선이 강조됩니다.</p>
+  <div class="tabs" id="tabs"></div>
+  <div class="cols">
+    <div class="panel">
+      <svg id="sv" viewBox="-44 -30 600 580"></svg>
+      <div id="pos">모눈 위에 마우스를 올리면 그 위치의 좌표가 표시됩니다.</div>
+    </div>
+    <div class="panel">
+      <div id="code"></div>
+      <div class="legend">
+        <div><span class="sw" style="background:var(--fat)"></span>실제로 칠해지는 굵은 획 (두께 72)</div>
+        <div><span class="sw" style="background:var(--line);height:3px"></span>좌표로 적는 중심선 (화살표 = 붓이 가는 방향)</div>
+        <div><span class="sw" style="background:var(--pt);width:8px;border-radius:50%"></span>코드에 적힌 좌표점</div>
+        <div>① ② ③ = 획 순서 (붓을 떼고 새로 시작하는 단위)</div>
+      </div>
+    </div>
+  </div>
+
+  <h2 id="s2">2. 글자 뒤에 겹쳐진 요소</h2>
+  <p class="lead">하얀 윤곽선과 빗금 그림자는 따로 만든 도형이 아니라, <b>위와 같은 글자 좌표를 위치만 살짝 옮겨 다시 그린 것</b>입니다. 위에서 고른 글자 기준으로 보여줍니다.</p>
+  <div class="cols">
+    <div class="panel">
+      <svg id="ly" viewBox="0 0 520 520" class="stage"></svg>
+      <div class="checks">
+        <label><input type="checkbox" id="cRing" checked> 하얀 윤곽선</label>
+        <label><input type="checkbox" id="cHatch" checked> 빗금 그림자</label>
+        <label><input type="checkbox" id="cBody" checked> 글자 본체</label>
+        <label><input type="checkbox" id="cWide"> 떼어서 보기 (어긋남 3배)</label>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="layer"><b>③ 글자 본체</b> — 맨 위<br>좌표 그대로, 두께 <code>W</code>(72), 그라디언트 색.</div>
+      <div class="layer"><b>② 빗금 그림자</b> — 중간<br>같은 글자를 두께 <code>W</code>(72) 그대로, <span id="tHatch"></span> 옮겨서 그림. 색 대신 대각선 무늬(<code>hatch</code>)로 칠함. 글자와 같은 속도로 그려짐.</div>
+      <div class="layer"><b>① 하얀 윤곽선</b> — 맨 아래<br>같은 글자를 <span id="tRing"></span> 옮겨서 그림. 본체보다 사방 25 만큼 큰 테두리. 색은 <code>ring</code>, 옮기는 양은 <code>ro</code>. 글자가 60% 쯤 그려지면 서서히 나타남.</div>
+      <div class="legend">옮기는 방향: x 는 +면 오른쪽, −면 왼쪽 / y 는 +면 아래, −면 위.<br>빗금의 (−30, +18) 은 모든 글자 공통으로 코드에 고정돼 있고, 윤곽선의 <code>ro</code> 는 글자마다 <code>SL</code> 에서 따로 정합니다.</div>
+    </div>
+  </div>
+
+  <h2 id="s3">3. 하얀 윤곽선이 만들어지는 과정</h2>
+  <p class="lead">가는 선을 직접 그리는 게 아니라, 굵은 선을 그린 뒤 조금 덜 굵은 선으로 속을 파내서 테두리만 남깁니다.</p>
+  <div class="steps">
+    <div class="panel"><svg id="st1" viewBox="0 0 520 520" class="stage"></svg><div class="cap2"><b>1.</b> 두께 <code>W + 50</code> = 122 로 글자를 그림</div></div>
+    <div class="panel"><svg id="st2" viewBox="0 0 520 520" class="stage"></svg><div class="cap2"><b>2.</b> 두께 <code>W + 47</code> = 119 로 같은 자리를 지움 (어두운 부분이 지워질 영역)</div></div>
+    <div class="panel"><svg id="st3" viewBox="0 0 520 520" class="stage"></svg><div class="cap2"><b>3.</b> 차이 3 의 절반인 1.5 두께 테두리만 남음</div></div>
+  </div>
+
+  <h2 id="s4">4. 커스텀 가능한 부분</h2>
+  <p class="lead"><code>hello-demo.html</code> 기준입니다. 대부분 <code>SL</code> 배열의 글자별 한 줄에서 값만 바꾸면 됩니다.</p>
+
+  <div class="panel cust">
+    <h3>색상 <span>— <code>SL</code> 에서 글자마다 따로 지정</span></h3>
+    <div class="tw"><table>
+      <tr><th>항목</th><th>바뀌는 부분</th><th>예시 값</th></tr>
+      <tr><td><code>grad</code></td><td>글자 본체 그라디언트 3색 (시작 → 중간 → 끝)</td><td><i class="chip" style="background:linear-gradient(90deg,#f25584,#e0265e,#a90f3c)"></i><code>['#f25584', '#e0265e', '#a90f3c']</code></td></tr>
+      <tr><td><code>g</code></td><td>그라디언트 방향 (시작 x, y → 끝 x, y)</td><td><code>[140, 80, 420, 460]</code></td></tr>
+      <tr><td><code>bg</code></td><td>그 장면의 배경색</td><td><i class="chip" style="background:#fcd5da"></i><code>'#fcd5da'</code></td></tr>
+      <tr><td><code>ring</code></td><td>글자 뒤 가는 윤곽선 색</td><td><i class="chip" style="background:#fff"></i><code>'rgba(255,255,255,.85)'</code></td></tr>
+      <tr><td><code>hatch</code></td><td>빗금 그림자의 선 색</td><td><i class="chip" style="background:rgba(224,38,94,.24)"></i><code>'rgba(224,38,94,.24)'</code></td></tr>
+      <tr><td><code>shadow</code></td><td>글자 아래로 번지는 그림자 색</td><td><i class="chip" style="background:rgba(150,10,45,.32)"></i><code>'rgba(150,10,45,.32)'</code></td></tr>
+    </table></div>
+    <p class="note">질감 안쪽 색(네트워크의 점과 선, 빛 번짐, 얼룩)은 <code>SL</code> 이 아니라 <code>texture()</code> 함수 안의 <code>rgba(...)</code> 값을 직접 고쳐야 합니다. 버튼과 문구의 색은 CSS 에서 바꿉니다.</p>
+  </div>
+
+  <div class="panel cust">
+    <h3>텍스트</h3>
+    <div class="tw"><table>
+      <tr><th>항목</th><th>바뀌는 부분</th><th>위치</th></tr>
+      <tr><td><code>txt</code></td><td>장면별 설명 문구 (타이핑되듯 나타나는 줄)</td><td><code>SL</code></td></tr>
+      <tr><td><code>slo</code></td><td>장면별 하단 슬로건 (자동 대문자 처리)</td><td><code>SL</code></td></tr>
+      <tr><td><code>k</code></td><td>버튼에 표시되는 글자</td><td><code>SL</code></td></tr>
+      <tr><td><code>WORD</code></td><td>합체 장면의 단어 표시</td><td>상단 변수</td></tr>
+      <tr><td><code>' — 스크립트로 그린 글자'</code></td><td>합체 장면의 설명 문구</td><td><code>applyScene()</code> 안</td></tr>
+      <tr><td>타이핑 속도 <code>22</code></td><td>한 글자가 찍히는 간격 (ms)</td><td><code>typeCap()</code> 안</td></tr>
+    </table></div>
+    <p class="note">문구는 일반 HTML 텍스트라 한글도 그대로 쓸 수 있습니다. 폰트와 크기는 CSS 의 <code>#hmCapNo</code>, <code>#hmCapT</code>, <code>#hmSlogan</code> 에서 바꿉니다.</p>
+  </div>
+
+  <div class="panel cust">
+    <h3>글자 모양과 두께</h3>
+    <div class="tw"><table>
+      <tr><th>항목</th><th>바뀌는 부분</th><th>주의</th></tr>
+      <tr><td><code>SEG</code></td><td>글자의 획 경로 (선 · 호 좌표)</td><td>새 글자는 좌표를 직접 적어야 함</td></tr>
+      <tr><td><code>shape</code></td><td>장면에서 쓸 글자 모양 (<code>SEG</code> 의 키)</td><td>같은 모양을 여러 장면에서 재사용 가능</td></tr>
+      <tr><td><code>W</code></td><td>획 두께. 본체 · 빗금 · 윤곽선이 함께 바뀜</td><td>바꾸면 <code>BOX</code> 도 같이 조정</td></tr>
+      <tr><td><code>BOX</code></td><td>합체 장면에서 글자의 폭과 중심 계산</td><td>획 두께 절반을 포함한 바깥 경계</td></tr>
+      <tr><td><code>ro</code></td><td>윤곽선을 글자에서 어긋나게 두는 양 [x, y]</td><td>글자마다 따로 지정</td></tr>
+      <tr><td><code>-30, 18</code></td><td>빗금 그림자를 어긋나게 두는 양</td><td><code>draw()</code> 안, 모든 글자 공통</td></tr>
+      <tr><td><code>W + 50</code>, <code>W + 47</code></td><td>윤곽선과 글자 사이 거리, 윤곽선 굵기</td><td><code>drawStatic()</code> 안</td></tr>
+      <tr><td>빗금 간격 <code>8</code></td><td>빗금 줄 사이 간격 (px)</td><td><code>hatchPattern()</code> 의 기본값</td></tr>
+    </table></div>
+    <p class="note">곡선은 원호만 지원합니다. 획이 굵어서 한글이나 획이 많은 글자는 <code>W</code> 를 크게 줄여야 뭉개지지 않습니다.</p>
+  </div>
+
+  <div class="panel cust">
+    <h3>질감 <span>— <code>SL</code> 의 <code>tex</code></span></h3>
+    <div class="tw"><table>
+      <tr><th>값</th><th>모습</th><th>세부 조절 (<code>texture()</code> 안)</th></tr>
+      <tr><td><code>'network'</code></td><td>떠다니는 점과, 가까운 점끼리 잇는 선</td><td>점 개수 <code>60</code>, 연결 거리 <code>88</code>, 속도 <code>.35</code></td></tr>
+      <tr><td><code>'photo'</code></td><td>천천히 흔들리는 어둡고 밝은 얼룩</td><td>얼룩의 위치 · 크기 · 색, 속도 <code>2200</code></td></tr>
+      <tr><td><code>'glow'</code></td><td>글자 둘레를 도는 빛 2개</td><td>빛의 크기 · 색, 회전 속도 <code>1800</code></td></tr>
+    </table></div>
+    <p class="note">질감 종류를 새로 만들려면 <code>texture()</code> 에 <code>else if (sl.tex === '이름')</code> 분기를 추가하면 됩니다. 속도 숫자는 클수록 느립니다.</p>
+  </div>
+
+  <div class="panel cust">
+    <h3>속도와 시간 <span>— 상단 변수, 단위 밀리초</span></h3>
+    <div class="tw"><table>
+      <tr><th>항목</th><th>바뀌는 부분</th><th>현재 값</th></tr>
+      <tr><td><code>DRAW</code></td><td>글자 하나를 다 그리는 시간</td><td>1900</td></tr>
+      <tr><td><code>DUR</code></td><td>글자 장면 하나의 전체 길이 (그리기 + 머무는 시간)</td><td>3100</td></tr>
+      <tr><td><code>ADRAW</code></td><td>합체 장면에서 글자 하나를 그리는 시간</td><td>380</td></tr>
+      <tr><td><code>ASM</code></td><td>합체 장면 전체 길이</td><td>글자 수 × 380 + 1600</td></tr>
+      <tr><td><code>250</code></td><td>장면 끝에서 사라지는 시간</td><td><code>draw()</code> 안</td></tr>
+      <tr><td><code>ease()</code></td><td>그려지는 속도 곡선 (천천히 → 빠르게 → 천천히)</td><td>함수 교체</td></tr>
+    </table></div>
+    <p class="note"><code>DUR</code> 은 <code>DRAW</code> 보다 커야 다 그려진 글자가 잠시 머뭅니다.</p>
+  </div>
+
+  <div class="panel cust">
+    <h3>그 외</h3>
+    <div class="tw"><table>
+      <tr><th>항목</th><th>바뀌는 부분</th><th>위치</th></tr>
+      <tr><td>글자 수</td><td><code>SL</code> 에 줄을 추가 · 삭제하면 버튼과 장면 번호가 자동으로 맞춰짐</td><td><code>SL</code></td></tr>
+      <tr><td>글자 아래 그림자</td><td>번짐 <code>46</code>, 아래로 내리는 양 <code>28</code></td><td><code>draw()</code> 안</td></tr>
+      <tr><td>붓 끝 빛</td><td>크기 <code>w * .55</code>, 밝기</td><td><code>penTip()</code></td></tr>
+      <tr><td>마우스 기울기</td><td>좌우 <code>6</code>도, 상하 <code>5</code>도. 블록을 지우면 꺼짐</td><td>맨 아래 <code>mousemove</code></td></tr>
+      <tr><td>합체 장면 크기와 간격</td><td>최대 축소 비율 <code>.31</code>, 글자 간격 <code>gap = 14</code></td><td><code>drawAssembly()</code></td></tr>
+      <tr><td>캔버스 표시 크기</td><td><code>#hmArt</code> 의 <code>width</code></td><td>CSS</td></tr>
+    </table></div>
+  </div>
+</div>
+<script>
+(function () {
+  var PI = Math.PI, NS = 'http://www.w3.org/2000/svg';
+  var SEG = {
+    H: [[['L', 150, 110, 150, 420]], [['L', 370, 110, 370, 420]], [['L', 150, 265, 370, 265]]],
+    E: [[['L', 370, 110, 160, 110], ['L', 160, 110, 160, 420], ['L', 160, 420, 370, 420]], [['L', 160, 265, 330, 265]]],
+    L: [[['L', 180, 100, 180, 420], ['L', 180, 420, 380, 420]]],
+    O: [[['A', 260, 265, 140, -PI / 2, 1.5 * PI]]]
+  };
+  /* 코드에 표시할 원문과 설명 */
+  var NOTE = {
+    H: [['왼쪽 세로선: 위(150,110) → 아래(150,420)'], ['오른쪽 세로선: 위(370,110) → 아래(370,420)'], ['가로선: 왼쪽(150,265) → 오른쪽(370,265). 265는 110과 420의 중간']],
+    E: [['위 가로선: 오른쪽 → 왼쪽', '세로선: 위 → 아래 (앞 선의 끝점에서 이어짐)', '아래 가로선: 왼쪽 → 오른쪽'], ['가운데 가로선 (조금 짧게 330까지)']],
+    L: [['세로선: 위 → 아래', '아래 가로선: 왼쪽 → 오른쪽']],
+    O: [['중심 (260,265), 반지름 140. 12시(-PI/2)에서 시계 방향으로 한 바퀴']]
+  };
+  var sv = document.getElementById('sv'), codeBox = document.getElementById('code'), tabs = document.getElementById('tabs'), pos = document.getElementById('pos');
+  var cur = 'H', sel = null;
+
+  function el(tag, attrs, text) {
+    var e = document.createElementNS(NS, tag);
+    for (var k in attrs) e.setAttribute(k, attrs[k]);
+    if (text != null) e.textContent = text;
+    sv.appendChild(e); return e;
+  }
+  function fmtAngle(a) {
+    var r = a / PI;
+    if (r === 0) return '0'; if (r === -.5) return '-PI / 2'; if (r === .5) return 'PI / 2'; if (r === 1) return 'PI'; if (r === 1.5) return '1.5 * PI'; if (r === 2) return '2 * PI';
+    return r + ' * PI';
+  }
+  function src(g) { return g[0] === 'L' ? "['L', " + g.slice(1).join(', ') + ']' : "['A', " + g[1] + ', ' + g[2] + ', ' + g[3] + ', ' + fmtAngle(g[4]) + ', ' + fmtAngle(g[5]) + ']'; }
+  function pathOf(g) {
+    if (g[0] === 'L') return 'M' + g[1] + ' ' + g[2] + 'L' + g[3] + ' ' + g[4];
+    /* 호는 짧은 직선 여러 개로 이어서 그림 */
+    var d = '', n = 72;
+    for (var i = 0; i <= n; i++) { var a = g[4] + (g[5] - g[4]) * i / n; d += (i ? 'L' : 'M') + (g[1] + g[3] * Math.cos(a)).toFixed(1) + ' ' + (g[2] + g[3] * Math.sin(a)).toFixed(1); }
+    return d;
+  }
+
+  function render() {
+    sv.innerHTML = '';
+    /* 화살표 머리 */
+    var defs = el('defs', {}); defs.innerHTML = '<marker id="ar" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M0 0L10 5L0 10z" fill="var(--line)"/></marker>';
+    /* 모눈 */
+    for (var v = 0; v <= 520; v += 20) {
+      var big = v % 100 === 0, c = big ? 'var(--grid2)' : 'var(--grid)';
+      el('line', { x1: v, y1: 0, x2: v, y2: 520, stroke: c, 'stroke-width': big ? 1 : .6 });
+      el('line', { x1: 0, y1: v, x2: 520, y2: v, stroke: c, 'stroke-width': big ? 1 : .6 });
+      if (big) { el('text', { x: v, y: -8, 'text-anchor': 'middle', class: 'ax' }, v); el('text', { x: -8, y: v + 4, 'text-anchor': 'end', class: 'ax' }, v); }
+    }
+    el('text', { x: 530, y: -8, class: 'ax' }, 'x →'); el('text', { x: -40, y: 540, class: 'ax' }, 'y ↓');
+
+    var strokes = SEG[cur], seen = {};
+    /* 굵은 획 (실제 칠해지는 영역) */
+    strokes.forEach(function (sub) { sub.forEach(function (g) { el('path', { d: pathOf(g), fill: 'none', stroke: 'var(--fat)', 'stroke-width': 72, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }); }); });
+    /* 중심선 */
+    strokes.forEach(function (sub, si) { sub.forEach(function (g, gi) {
+      var on = sel === si + '-' + gi;
+      el('path', { d: pathOf(g), fill: 'none', stroke: 'var(--line)', 'stroke-width': on ? 6 : 3, 'marker-end': 'url(#ar)', opacity: sel && !on ? .3 : 1 });
+    }); });
+    /* 호: 중심과 반지름, 방향 표시 */
+    strokes.forEach(function (sub) { sub.forEach(function (g) {
+      if (g[0] !== 'A') return;
+      el('line', { x1: g[1], y1: g[2], x2: g[1] + g[3], y2: g[2], stroke: 'var(--pt)', 'stroke-width': 1.5, 'stroke-dasharray': '5 4' });
+      el('text', { x: g[1] + g[3] / 2, y: g[2] - 8, 'text-anchor': 'middle', class: 'lbl' }, '반지름 ' + g[3]);
+      el('circle', { cx: g[1], cy: g[2], r: 5, fill: 'var(--pt)' });
+      el('text', { x: g[1], y: g[2] + 22, 'text-anchor': 'middle', class: 'lbl' }, '중심 (' + g[1] + ', ' + g[2] + ')');
+      [['0 (3시)', 0], ['PI/2 (6시)', PI / 2], ['PI (9시)', PI], ['-PI/2 = 1.5·PI (12시) 시작·끝', -PI / 2]].forEach(function (m) {
+        var x = g[1] + g[3] * Math.cos(m[1]), y = g[2] + g[3] * Math.sin(m[1]);
+        el('circle', { cx: x, cy: y, r: 5, fill: 'var(--pt)' });
+        var dx = Math.cos(m[1]) * 46, dy = Math.sin(m[1]) * 52;
+        el('text', { x: x + dx, y: y + dy + 4, 'text-anchor': 'middle', class: 'lbl' }, m[0]);
+      });
+    }); });
+    /* 직선의 좌표점과 라벨 (같은 점은 한 번만) */
+    strokes.forEach(function (sub) { sub.forEach(function (g) {
+      if (g[0] !== 'L') return;
+      [[g[1], g[2]], [g[3], g[4]]].forEach(function (p) {
+        var key = p.join(','); if (seen[key]) return; seen[key] = 1;
+        el('circle', { cx: p[0], cy: p[1], r: 5, fill: 'var(--pt)' });
+        var up = p[1] < 265 || (p[1] === 265 && false), left = p[0] < 260;
+        el('text', { x: p[0] + (left ? -10 : 10), y: p[1] + (p[1] <= 200 ? -12 : p[1] >= 400 ? 24 : -12), 'text-anchor': left ? 'end' : 'start', class: 'lbl' }, '(' + p[0] + ', ' + p[1] + ')');
+      });
+    }); });
+    /* 획 순서 번호 — 각 획의 시작점 옆 */
+    strokes.forEach(function (sub, si) {
+      var g = sub[0], x = g[0] === 'L' ? g[1] : g[1] + g[3] * Math.cos(g[4]), y = g[0] === 'L' ? g[2] : g[2] + g[3] * Math.sin(g[4]);
+      var dx = g[0] === 'L' ? Math.sign(g[3] - g[1]) * 34 : 34, dy = g[0] === 'L' ? Math.sign(g[4] - g[2]) * 34 : 0;
+      el('circle', { cx: x + dx, cy: y + dy, r: 12, fill: 'var(--line)' });
+      el('text', { x: x + dx, y: y + dy + 4.5, 'text-anchor': 'middle', class: 'num' }, si + 1);
+    });
+
+    /* 오른쪽 코드 목록 */
+    codeBox.innerHTML = '';
+    strokes.forEach(function (sub, si) {
+      var h = document.createElement('div'); h.className = 'stroke-h'; h.textContent = (si + 1) + '번째 획' + (sub.length > 1 ? ' (붓을 떼지 않고 ' + sub.length + '조각)' : ''); codeBox.appendChild(h);
+      sub.forEach(function (g, gi) {
+        var id = si + '-' + gi, d = document.createElement('div'); d.className = 'seg' + (sel === id ? ' on' : '');
+        d.textContent = src(g);
+        var sm = document.createElement('small'); sm.textContent = NOTE[cur][si][gi]; d.appendChild(sm);
+        d.onclick = function () { sel = sel === id ? null : id; render(); };
+        codeBox.appendChild(d);
+      });
+    });
+    [].forEach.call(tabs.children, function (b) { b.classList.toggle('on', b.textContent === cur); });
+    renderLayers();
+  }
+
+  /* ---------- 아래 두 구역: 겹쳐진 요소 / 윤곽선 만드는 과정 ---------- */
+  var RO = { H: [0, -24], E: [26, -22], L: [-24, -26], O: [-26, -22] };   // 데모의 SL.ro 값 (L 은 네 번째 장면 기준)
+  var HATCH = [-30, 18], W = 72;
+  function $(id) { return document.getElementById(id); }
+  function sign(n) { return (n > 0 ? '+' : n < 0 ? '−' : '') + Math.abs(n); }
+  function renderLayers() {
+    var d = SEG[cur].map(function (sub) { return sub.map(pathOf).join(''); }).join('');
+    var k = $('cWide').checked ? 3 : 1, ro = RO[cur];
+    var rx = ro[0] * k, ry = ro[1] * k, hx = HATCH[0] * k, hy = HATCH[1] * k;
+    var common = ' fill="none" stroke-linecap="round" stroke-linejoin="round" d="' + d + '"';
+    var defs = '<defs>' +
+      '<pattern id="hp" width="8" height="8" patternUnits="userSpaceOnUse"><path d="M0 8L8 0" stroke="rgba(224,38,94,.45)" stroke-width="1"/></pattern>' +
+      '<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f25584"/><stop offset=".45" stop-color="#e0265e"/><stop offset="1" stop-color="#a90f3c"/></linearGradient>' +
+      '<mask id="rm" maskUnits="userSpaceOnUse" x="-200" y="-200" width="920" height="920"><path stroke="#fff" stroke-width="' + (W + 50) + '"' + common + '/><path stroke="#000" stroke-width="' + (W + 47) + '"' + common + '/></mask></defs>';
+    var h = defs;
+    if ($('cRing').checked) h += '<g transform="translate(' + rx + ' ' + ry + ')"><rect x="-200" y="-200" width="920" height="920" fill="#fff" mask="url(#rm)"/></g>';
+    if ($('cHatch').checked) h += '<path transform="translate(' + hx + ' ' + hy + ')" stroke="url(#hp)" stroke-width="' + W + '"' + common + '/>';
+    if ($('cBody').checked) h += '<path stroke="url(#bg)" stroke-width="' + W + '"' + common + '/>';
+    $('ly').innerHTML = h;
+    $('tHatch').innerHTML = '<code>x ' + sign(HATCH[0]) + ', y ' + sign(HATCH[1]) + '</code> (왼쪽 아래로)';
+    $('tRing').innerHTML = '<code>ro = [' + ro[0] + ', ' + ro[1] + ']</code>';
+
+    /* 윤곽선 3단계 */
+    $('st1').innerHTML = '<path stroke="#fff" stroke-width="' + (W + 50) + '"' + common + '/>';
+    $('st2').innerHTML = '<path stroke="#fff" stroke-width="' + (W + 50) + '"' + common + '/><path stroke="rgba(27,34,51,.55)" stroke-width="' + (W + 47) + '"' + common + '/>';
+    $('st3').innerHTML = '<defs><mask id="rm3" maskUnits="userSpaceOnUse" x="-200" y="-200" width="920" height="920"><path stroke="#fff" stroke-width="' + (W + 50) + '"' + common + '/><path stroke="#000" stroke-width="' + (W + 47) + '"' + common + '/></mask></defs><rect x="-200" y="-200" width="920" height="920" fill="#fff" mask="url(#rm3)"/>';
+  }
+  ['cRing', 'cHatch', 'cBody', 'cWide'].forEach(function (id) { $(id).addEventListener('change', renderLayers); });
+
+  Object.keys(SEG).forEach(function (k) {
+    var b = document.createElement('button'); b.textContent = k; b.setAttribute('aria-label', k + ' 글자 보기');
+    b.onclick = function () { cur = k; sel = null; render(); }; tabs.appendChild(b);
+  });
+
+  /* 마우스 위치 → 모눈 좌표 */
+  sv.addEventListener('pointermove', function (e) {
+    var m = sv.getScreenCTM(); if (!m) return;
+    var x = Math.round((e.clientX - m.e) / m.a), y = Math.round((e.clientY - m.f) / m.d);
+    pos.textContent = x >= 0 && x <= 520 && y >= 0 && y <= 520 ? '현재 위치: x = ' + x + ', y = ' + y : '모눈 바깥';
+  });
+  render();
+})();
+</script>
+</body>
+</html>
